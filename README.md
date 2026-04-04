@@ -10,7 +10,7 @@ Edit `config.yaml` and set paths correctly:
 
 ```yaml
 # Use absolute paths (must start with /)
-base_dir: "/path_to_this_ivtFOODIE_path"
+base_dir: "/path_to_this_ivtFOODIE_pipeline_path"
 raw_data_source: "/path_to_fastq"
 ```
 
