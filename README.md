@@ -10,8 +10,8 @@ Edit `config.yaml` and set paths correctly:
 
 ```yaml
 # Use absolute paths (must start with /)
-base_dir: "/dshare/xielab/.../codeRefactoring_test"
-raw_data_source: "/dshare/xielab/.../your_raw_fastq_directory"
+base_dir: "/path_to_this_ivtFOODIE_path"
+raw_data_source: "/path_to_fastq"
 ```
 
 ### 2. Verify configuration
