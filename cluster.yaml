@@ -1,0 +1,27 @@
+__default__:
+  time: "7-00:00:00"
+  ntasks: 1
+  output: "logs/slurm/%j_{rule}_{wildcards}.out"
+  error: "logs/slurm/%j_{rule}_{wildcards}.err"
+  job-name: "{rule}_{wildcards}"
+
+split_fastq:
+  cpus-per-task: 1
+  mem: "20G"
+  partition: "compute_new"
+
+process_part:
+  cpus-per-task: 4
+  mem: "20G"
+  partition: "compute_new"
+
+merge_and_analysis:
+  cpus-per-task: 16
+  mem: "64G"
+  partition: "compute_fat"
+
+plot_conversion:
+  cpus-per-task: 1
+  mem: "4G"
+  partition: "compute_new"
+  time: "1:00:00"

@@ -1,0 +1,3 @@
+20241211
+change deduplication.py deduplication_readsStartEnd.py
+read_pair = [ch,st,ed,pos,con] to read_pair = [ch,st,ed,pos,con,CorG]

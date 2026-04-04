@@ -1,0 +1,93 @@
+# Pipeline配置文件
+
+# 基础设置
+species: mouse           # 物种：human, mouse, fly
+n_parts: 32             # 拆分份数
+base_dir: "/dshare/xielab/analysisdata/TFC/shenk/rawdata/20260121_SK_plasmid_deaminase/ivtFOODIE_map"          # 基础目录（绝对路径）
+raw_data_source: "/dshare/xielab/analysisdata/TFC/shenk/rawdata/20260121_SK_plasmid_deaminase/ivtFOODIE_map/data"  # 原始下载的fastq.gz文件所在路径
+
+# 路径配置
+paths:
+  scripts: "/share/home/shenk/analysis/pipeline-example/scripts"
+  bismark_env: "/share/home/shenk/local/anaconda3/envs/bismark/bin"
+  methyl_extract: "/dshare/home/zhangz/Devel/foodie-routine/methyl_extract_XCX-test.new.py"
+  sort_tmp: "/dshare/xielab/analysisdata/TFC/shenk/sort.tmp"
+  ucsc_tools: "/share/home/shenk/local/UCSC_tools"
+  sample_rename_script: "/share/home/shenk/analysis/pipeline-example/pipeline-big-efficient_wo_st_ed-deduplication_codeRefactoring/Sample_rename.new.sh"  # 样本重命名脚本绝对路径
+
+# 参考基因组路径
+genomes:
+  human: /gshare/xielab/jianfc/genome/GRCh38
+  mouse: /share/home/baiyl/basic/database/mouse/mm10/Index/Bismark_mm10
+  fly: /gshare/xielab/jianfc/genome/Drosophila_dm6
+  lambda: /gshare/xielab/jianfc/genome/lambda_DNA
+
+# 染色体大小文件
+chromsizes:
+  human: /gshare/xielab/jianfc/reference/human/hg38.chrom.sizes
+  mouse: /gshare/xielab/jianfc/reference/mouse/mm10.chrom.sizes
+  fly: /gshare/xielab/jianfc/genome/Drosophila_dm6/dm6.chrom.sizes
+
+# MACS2 genome size参数
+gsize:
+  human: hs
+  mouse: mm
+  fly: dm
+
+# IGV genome参数
+igv_genome:
+  human: hg38
+  mouse: mm10
+  fly: dm6
+
+# Bismark参数
+bismark:
+  insert_size: 2000      # -X 参数，in vivo数据用2000, in vitro用500
+  quality: 5           # 质量阈值
+  trim_threshold: 15    # -t参数，in vivo用15, in vitro用0
+  save_unmapped: true    # 是否保留未比对的reads到单独文件夹
+
+# Trim_galore参数
+trim_galore:
+  quality: 20
+  stringency: 2
+  error_rate: 0.1
+
+# Cutadapt参数（用于去除FOODIE特定接头）
+cutadapt:
+  cut_r1_left: 0      # --cut参数, in vivo用0, in vitro用36
+  cut_r1_right: 0     # --cut=-参数, in vivo用0, in vitro用46
+  cut_r2_left: 0      # --cut参数, in vivo用0, in vitro用46
+  cut_r2_right: 0     # --cut=-参数, in vivo用0, in vitro用36
+
+# 资源配置（可被cluster.yaml覆盖）
+resources:
+  setup_rawdata:
+    threads: 1
+    mem_gb: 2
+    time: "1:00:00"
+    partition: "compute_plus"
+  
+  split_fastq:
+    threads: 1
+    mem_gb: 20
+    time: "7-00:00:00"
+    partition: "compute_plus"
+  
+  process_part:
+    threads: 4
+    mem_gb: 20
+    time: "7-00:00:00"
+    partition: "compute_plus"
+  
+  merge_and_analysis:
+    threads: 16
+    mem_gb: 64
+    time: "7-00:00:00"
+    partition: "compute_fat"
+  
+  plot_conversion:
+    threads: 1
+    mem_gb: 4
+    time: "1:00:00"
+    partition: "compute_plus"
