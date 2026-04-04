@@ -1,6 +1,6 @@
 #!/bin/bash
-# 路径验证脚本
-# 用于验证所有配置的路径是否正确
+# Path verification script
+# Validates that configured paths are correct
 
 set -e
 
@@ -8,14 +8,14 @@ WORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$WORK_DIR"
 
 echo "========================================"
-echo "路径配置验证"
+echo "Path configuration verification"
 echo "========================================"
 echo ""
-echo "工作目录: $WORK_DIR"
+echo "Working directory: $WORK_DIR"
 echo ""
 
-# 读取config.yaml中的配置
-echo "正在读取 config.yaml ..."
+# Read settings from config.yaml
+echo "Reading config.yaml ..."
 echo ""
 
 BASE_DIR=$(grep "^base_dir:" config.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
@@ -24,93 +24,93 @@ SAMPLE_RENAME_SCRIPT=$(grep "sample_rename_script:" config.yaml | awk '{print $2
 SCRIPTS_DIR=$(grep "scripts:" config.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
 BISMARK_ENV=$(grep "bismark_env:" config.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
 
-echo "配置检查："
+echo "Configuration checks:"
 echo "----------"
 
-# 检查base_dir
+# Check base_dir
 echo -n "1. base_dir: $BASE_DIR ... "
 if [[ "$BASE_DIR" = /* ]]; then
-    echo "✓ (绝对路径)"
+    echo "✓ (absolute path)"
 else
-    echo "✗ (相对路径，需要改为绝对路径)"
+    echo "✗ (relative path; use an absolute path)"
     exit 1
 fi
 
-# 检查raw_data_source
+# Check raw_data_source
 echo -n "2. raw_data_source: $RAW_DATA_SOURCE ... "
 if [[ "$RAW_DATA_SOURCE" = /* ]]; then
-    echo "✓ (绝对路径)"
+    echo "✓ (absolute path)"
     if [ -d "$RAW_DATA_SOURCE" ]; then
-        echo "   └─ 目录存在 ✓"
-        # 检查是否有fastq.gz文件
+        echo "   └─ directory exists ✓"
+        # Check for fastq.gz files
         FASTQ_COUNT=$(find "$RAW_DATA_SOURCE" -maxdepth 1 -name "*.fastq.gz" -o -name "*.fq.gz" | wc -l)
-        echo "   └─ 找到 $FASTQ_COUNT 个 fastq.gz 文件"
+        echo "   └─ found $FASTQ_COUNT fastq.gz file(s)"
     else
-        echo "   └─ 警告：目录不存在 ✗"
+        echo "   └─ warning: directory does not exist ✗"
     fi
 else
-    echo "✗ (相对路径，需要改为绝对路径)"
+    echo "✗ (relative path; use an absolute path)"
     exit 1
 fi
 
-# 检查sample_rename_script
+# Check sample_rename_script
 echo -n "3. sample_rename_script: $SAMPLE_RENAME_SCRIPT ... "
 if [[ "$SAMPLE_RENAME_SCRIPT" = /* ]]; then
-    echo "✓ (绝对路径)"
+    echo "✓ (absolute path)"
     if [ -f "$SAMPLE_RENAME_SCRIPT" ]; then
-        echo "   └─ 文件存在 ✓"
+        echo "   └─ file exists ✓"
         if [ -x "$SAMPLE_RENAME_SCRIPT" ]; then
-            echo "   └─ 可执行 ✓"
+            echo "   └─ executable ✓"
         else
-            echo "   └─ 警告：不可执行，运行: chmod +x $SAMPLE_RENAME_SCRIPT"
+            echo "   └─ warning: not executable; run: chmod +x $SAMPLE_RENAME_SCRIPT"
         fi
     else
-        echo "   └─ 警告：文件不存在 ✗"
+        echo "   └─ warning: file does not exist ✗"
     fi
 else
-    echo "✗ (相对路径，需要改为绝对路径)"
+    echo "✗ (relative path; use an absolute path)"
     exit 1
 fi
 
-# 检查scripts目录
-echo -n "4. scripts目录: $SCRIPTS_DIR ... "
+# Check scripts directory
+echo -n "4. scripts directory: $SCRIPTS_DIR ... "
 if [[ "$SCRIPTS_DIR" = /* ]]; then
-    echo "✓ (绝对路径)"
+    echo "✓ (absolute path)"
     if [ -d "$SCRIPTS_DIR" ]; then
-        echo "   └─ 目录存在 ✓"
+        echo "   └─ directory exists ✓"
     else
-        echo "   └─ 警告：目录不存在 ✗"
+        echo "   └─ warning: directory does not exist ✗"
     fi
 else
-    echo "✗ (相对路径，需要改为绝对路径)"
+    echo "✗ (relative path; use an absolute path)"
     exit 1
 fi
 
-# 检查bismark环境
+# Check bismark environment
 echo -n "5. bismark_env: $BISMARK_ENV ... "
 if [[ "$BISMARK_ENV" = /* ]]; then
-    echo "✓ (绝对路径)"
+    echo "✓ (absolute path)"
     if [ -d "$BISMARK_ENV" ]; then
-        echo "   └─ 目录存在 ✓"
-        # 检查关键工具
+        echo "   └─ directory exists ✓"
+        # Check key tools
         if [ -f "$BISMARK_ENV/bismark" ]; then
-            echo "   └─ bismark 可执行文件存在 ✓"
+            echo "   └─ bismark executable found ✓"
         else
-            echo "   └─ 警告：找不到 bismark ✗"
+            echo "   └─ warning: bismark not found ✗"
         fi
     else
-        echo "   └─ 警告：目录不存在 ✗"
+        echo "   └─ warning: directory does not exist ✗"
     fi
 else
-    echo "✗ (相对路径，需要改为绝对路径)"
+    echo "✗ (relative path; use an absolute path)"
     exit 1
 fi
 
 echo ""
-echo "必要脚本检查："
+echo "Required pipeline scripts:"
 echo "-------------"
 
-# 检查必要的脚本文件
+# Check required pipeline scripts
 REQUIRED_SCRIPTS=(
     "Snakefile"
     "config.yaml"
@@ -126,37 +126,37 @@ for script in "${REQUIRED_SCRIPTS[@]}"; do
     if [ -f "$WORK_DIR/$script" ]; then
         echo "✓"
     else
-        echo "✗ (缺失)"
+        echo "✗ (missing)"
         exit 1
     fi
 done
 
 echo ""
-echo "样本检测测试："
+echo "Sample detection test:"
 echo "-------------"
 
-# 检测样本
+# Sample detection
 if [ -d "$RAW_DATA_SOURCE" ]; then
     R1_COUNT=$(find "$RAW_DATA_SOURCE" -maxdepth 1 \( -name "*_R1*.fastq.gz" -o -name "*_R1*.fq.gz" -o -name "*.R1*.fastq.gz" -o -name "*.R1*.fq.gz" \) 2>/dev/null | wc -l)
-    echo "- 找到 $R1_COUNT 个 R1 文件"
+    echo "- Found $R1_COUNT R1 file(s)"
     if [ $R1_COUNT -gt 0 ]; then
-        echo "  样本列表（前5个）："
+        echo "  Sample names (first 5):"
         find "$RAW_DATA_SOURCE" -maxdepth 1 \( -name "*_R1*.fastq.gz" -o -name "*_R1*.fq.gz" -o -name "*.R1*.fastq.gz" -o -name "*.R1*.fq.gz" \) 2>/dev/null | head -5 | while read f; do
             base=$(basename "$f")
-            # 提取样本名
+            # Extract sample name
             sample=$(echo "$base" | sed 's/_R1.*//' | sed 's/\.R1.*//')
             echo "    └─ $sample"
         done
         if [ $R1_COUNT -gt 5 ]; then
-            echo "    └─ ... 还有 $((R1_COUNT - 5)) 个样本"
+            echo "    └─ ... and $((R1_COUNT - 5)) more sample(s)"
         fi
     fi
 else
-    echo "✗ raw_data_source 目录不存在，无法检测样本"
+    echo "✗ raw_data_source directory missing; cannot detect samples"
 fi
 
 echo ""
-echo "工具脚本检查："
+echo "Tool scripts:"
 echo "-------------"
 
 TOOL_SCRIPTS=(
@@ -172,17 +172,17 @@ for script in "${TOOL_SCRIPTS[@]}"; do
     if [ -f "$WORK_DIR/$script" ]; then
         echo "✓"
     else
-        echo "✗ (缺失)"
+        echo "✗ (missing)"
     fi
 done
 
 echo ""
 echo "========================================"
-echo "验证完成！"
+echo "Verification complete."
 echo "========================================"
 echo ""
-echo "下一步操作："
-echo "1. 如果所有路径都正确，运行: bash submit_snakemake.sh"
-echo "2. 如果需要修改路径，编辑 config.yaml 文件"
-echo "3. 如果原始数据目录不存在，请确认路径或准备数据"
+echo "Next steps:"
+echo "1. If all paths are OK, run: bash submit_snakemake.sh"
+echo "2. To change paths, edit config.yaml"
+echo "3. If the raw data directory is missing, fix the path or add data"
 echo ""

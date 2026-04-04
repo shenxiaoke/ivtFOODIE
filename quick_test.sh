@@ -1,82 +1,82 @@
 #!/bin/bash
-# 快速测试修复后的 Snakefile
+# Quick test for the Snakefile workflow
 
 echo "========================================"
-echo "快速测试 - Snakemake Pipeline"
+echo "Quick test - Snakemake pipeline"
 echo "========================================"
 echo ""
 
-# 检查是否在正确的目录
+# Ensure we are in the pipeline directory
 if [ ! -f "Snakefile" ]; then
-    echo "错误：请在 pipeline 目录下运行此脚本"
+    echo "Error: run this script from the pipeline directory"
     exit 1
 fi
 
-# 检查 snakemake 是否可用
+# Check snakemake is available
 if ! command -v snakemake &> /dev/null; then
-    echo "错误：snakemake 命令不可用"
-    echo "请先激活 bismark 环境："
+    echo "Error: snakemake not found"
+    echo "Activate the bismark environment first, e.g.:"
     echo "  conda activate bismark"
     exit 1
 fi
 
-echo "1. 检查配置文件..."
+echo "1. Checking config file..."
 if [ ! -f "config.yaml" ]; then
-    echo "✗ config.yaml 不存在"
+    echo "✗ config.yaml not found"
     exit 1
 fi
-echo "✓ config.yaml 存在"
+echo "✓ config.yaml found"
 
 echo ""
-echo "2. 读取配置..."
+echo "2. Reading configuration..."
 RAW_DATA_SOURCE=$(grep "^raw_data_source:" config.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
 echo "   raw_data_source: $RAW_DATA_SOURCE"
 
 echo ""
-echo "3. 检查原始数据目录..."
+echo "3. Checking raw data directory..."
 if [ -d "$RAW_DATA_SOURCE" ]; then
-    echo "✓ 目录存在: $RAW_DATA_SOURCE"
+    echo "✓ Directory exists: $RAW_DATA_SOURCE"
     
-    # 统计 R1 文件
+    # Count R1 files
     R1_COUNT=$(find "$RAW_DATA_SOURCE" -maxdepth 1 \( -name "*_R1*.fastq.gz" -o -name "*_R1*.fq.gz" -o -name "*.R1*.fastq.gz" -o -name "*.R1*.fq.gz" \) 2>/dev/null | wc -l)
-    echo "✓ 找到 $R1_COUNT 个 R1 文件"
+    echo "✓ Found $R1_COUNT R1 file(s)"
     
     if [ $R1_COUNT -eq 0 ]; then
-        echo "✗ 警告：没有找到 R1 文件！"
-        echo "  请检查文件命名格式"
+        echo "✗ Warning: no R1 files found!"
+        echo "  Check FASTQ naming (expected *_R1*.fastq.gz, etc.)"
         exit 1
     fi
 else
-    echo "✗ 目录不存在: $RAW_DATA_SOURCE"
-    echo "  请检查 config.yaml 中的 raw_data_source 配置"
+    echo "✗ Directory does not exist: $RAW_DATA_SOURCE"
+    echo "  Check raw_data_source in config.yaml"
     exit 1
 fi
 
 echo ""
-echo "4. 运行 Snakemake dry-run..."
+echo "4. Running Snakemake dry-run..."
 echo "----------------------------------------"
 
 snakemake -n 2>&1 | head -50
 
 echo "----------------------------------------"
 
-# 检查是否成功
+# Check dry-run success
 if snakemake -n &> /dev/null; then
     echo ""
     echo "========================================"
-    echo "✓ 测试通过！"
+    echo "✓ Test passed."
     echo "========================================"
     echo ""
-    echo "下一步："
-    echo "  - 查看完整的任务计划：snakemake -n -p"
-    echo "  - 提交运行：bash submit_snakemake.sh"
+    echo "Next:"
+    echo "  - Full DAG: snakemake -n -p"
+    echo "  - Submit: bash submit_snakemake.sh"
 else
     echo ""
     echo "========================================"
-    echo "✗ 测试失败"
+    echo "✗ Test failed"
     echo "========================================"
     echo ""
-    echo "请查看上面的错误信息"
-    echo "或运行以下命令查看详细错误："
+    echo "See errors above"
+    echo "Or run for details:"
     echo "  snakemake -n -p"
 fi

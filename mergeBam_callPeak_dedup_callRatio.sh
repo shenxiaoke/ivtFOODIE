@@ -1,35 +1,35 @@
 #!/bin/bash
 
 # created by Shen Ke, 2024/03/22
-# modified: 从config.yaml读取参数，避免硬编码
+# modified: read parameters from config.yaml to avoid hard-coding
 
 set -e
 
-# 获取脚本所在的绝对路径
+# Absolute path to this script's directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.yaml"
 
-# 使用Python解析config.yaml并导出变量
+# Parse config.yaml with Python and export variables
 eval $(python3 << EOF
 import yaml
 
 with open("$CONFIG_FILE", 'r') as f:
     config = yaml.safe_load(f)
 
-# 路径配置
+# Path settings
 print(f"export BISMARK_ENV='{config['paths']['bismark_env']}'")
 print(f"export SORT_TMP='{config['paths']['sort_tmp']}'")
 print(f"export UCSC_TOOLS='{config['paths']['ucsc_tools']}'")
 
-# 染色体大小文件
+# Chromosome sizes
 for sp, path in config['chromsizes'].items():
     print(f"export CHROMSIZE_{sp.upper()}='{path}'")
 
-# MACS2 gsize参数
+# MACS2 effective genome size (gsize)
 for sp, gs in config['gsize'].items():
     print(f"export GSIZE_{sp.upper()}='{gs}'")
 
-# IGV genome参数
+# IGV genome for toTDF
 for sp, igv in config['igv_genome'].items():
     print(f"export IGV_{sp.upper()}='{igv}'")
 EOF
@@ -42,19 +42,19 @@ sp=$2
 ncpu=$3
 sample=$4
 
-# 使用从config读取的染色体大小文件路径
+# Chromosome size paths from config
 declare -A chromsizes
 chromsizes["human"]=$CHROMSIZE_HUMAN
 chromsizes["mouse"]=$CHROMSIZE_MOUSE
 chromsizes["fly"]=$CHROMSIZE_FLY
 
-# 使用从config读取的MACS2 gsize参数
+# MACS2 gsize from config
 declare -A gsize_array
 gsize_array["human"]=$GSIZE_HUMAN
 gsize_array["mouse"]=$GSIZE_MOUSE
 gsize_array["fly"]=$GSIZE_FLY
 
-# 使用从config读取的IGV genome参数
+# IGV genome from config
 declare -A igv_tdf_array
 igv_tdf_array["human"]=$IGV_HUMAN
 igv_tdf_array["mouse"]=$IGV_MOUSE
@@ -138,7 +138,7 @@ function merge_info_and_plot {
 
     echo $IN/$sample $OUT/$sample $sample.call.o.txt | python $SCRIPT_DIR/tools/merge_info.py
 
-    # 注意：plot.R 在最后统一执行，这里不需要调用
+    # Note: plot.R runs once at the end of the workflow; do not call here
 
 }
 
@@ -172,7 +172,7 @@ call_peak
 
 # merge_bed_and_dedup
 
-# 这次使用首尾去重
+# Use read start/end deduplication for this run
 merge_bed_and_dedup_readsStartEnd
 
 merge_info_and_plot
