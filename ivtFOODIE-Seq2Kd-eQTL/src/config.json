@@ -1,0 +1,26 @@
+{
+  "source_root": "inputs",
+  "model_dir": "inputs/Seq2Kd-model",
+  "checkpoint": "shenke_data/v20_class_1.pt",
+  "model_config": "deepproteindna_gen_test4.yaml",
+  "embeddings": "shenke_data_add/all_human_tf.junchen20250426.uniprot_seq_data.pkl",
+  "proteins": "shenke_data_add/all_human_tf.junchen20250426.uniprot_seq_data.csv",
+  "genome_dir": "inputs/genome",
+  "mpra": "inputs/mpra/core_mpra.txt.gz",
+  "pwm_dir": "inputs/pwm/H14CORE",
+  "python": "python",
+  "rscript": "Rscript",
+  "percentages": [
+    5
+  ],
+  "seed": 0,
+  "mpra_sample_size": 10000,
+  "batch_size": 128,
+  "min_observations": 20,
+  "binding_rule": "combined",
+  "eqtl_beta_rule": "snp_gene",
+  "gpus": [
+    0
+  ],
+  "gtex_dir": "inputs/gtex-v10"
+}

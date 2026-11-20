@@ -1,0 +1,22 @@
+# Genomics tools environment
+# 基因组学工具环境：文件压缩、索引、区间操作
+
+name: foodie_genomics
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+
+dependencies:
+  # SAM/BAM/VCF工具集
+  - samtools=1.17
+
+  # 压缩和索引工具（bgzip, tabix）
+  - htslib=1.17
+
+  # 基因组区间操作
+  - bedtools=2.31
+
+  # Python接口（可选）
+  - python=3.10
+  - pybedtools=0.9

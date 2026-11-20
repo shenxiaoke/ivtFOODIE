@@ -1,0 +1,75 @@
+workflow_name: ivtFOODIE_postprocess
+version: 1.0.0
+min_depth: 10
+pc_name: ratio_adjust
+fix_n_to_1: true
+R: 8.31446261815324
+T: 300
+flank_size: 50
+motif_span: 100
+motif_pick_ratio: 0.1
+genomes:
+  human: /dshare/xielab/analysisdata/TFC/shenk/important_data/chrom/genome/GRCh38/genome.fa
+  mouse: /dshare/xielab/analysisdata/TFC/shenk/important_data/chrom/genome/Bismark_mm10/mm10.genome.fa
+  # mouse: /dshare/xielab/analysisdata/TFC/shenk/important_data/chrom/genome/Bismark_mm10/mm10.genome.chr10.fa
+open_regions:
+  GM: /dshare/xielab/analysisdata/TFC/xiec/prj/foodie/rsl/3307/open_region/GM_4w_n/d50.bed
+  K562: /dshare/xielab/analysisdata/TFC/xiec/prj/foodie/rsl/3C18/open_region/K562/K562_d20.bed
+  mESC: /dshare/xielab/analysisdata/TFC/shenk/analysis/WZ/TF_wholeGenome_inVitro_binding/TF_wholeGenome_inVitro_binding_20240923_batchAdjust_new/results/Tox_motif/high_score_peaks.bed
+  CH12: /dshare/xielab/analysisdata/TFC/shenk/rawdata/20260114_WZ_ivtFOODIE_zhangXueFei-ssb-aid/02-merge-outputs/bedfiles/260107-ivt-CITLS24cell-829B4-0d1x-PC_L3_Q0778W0466/260107-ivt-CITLS24cell-829B4-0d1x-PC_L3_Q0778W0466/high_score_peaks.bed
+footprint_thresholds:
+  top5_top10:
+    seed: 0.95
+    extend: 0.9
+    description: Stringent threshold for high-confidence footprints
+  top10_top20:
+    seed: 0.9
+    extend: 0.8
+    description: Moderate threshold for broader footprint discovery
+  top15_top30:
+    seed: 0.85
+    extend: 0.7
+    description: weak threshold for broader footprint discovery
+streme_minw: 6
+streme_maxw: 15
+streme_nmotifs: 10
+streme_thresh: 0.05
+streme_totallength: 4000000
+fimo_thresh: 0.0001
+fimo_max_stored: 100000000
+visualization:
+  motif_pick_ratio: 0.01
+  min_depth_plot: 5
+  normalize_flank: true
+  plot_format: pdf
+  plot_dpi: 300
+tfs:
+  SP1-FL_lessConc:
+    species: human
+    cell_line: GM
+    # pc_control: /dshare/xielab/analysisdata/TFC/wz/share/FOODIE/FOODIEin/20241223-SP1ti-highhighYY1/02-merge-outputs/ratio/241211-GMcell-829B4-0d2x-T0_L3_Q0060W0149/241211-GMcell-829B4-0d2x-T0_L3_Q0060W0149_sites.txt.gz
+    # 用低浓度作为PC，减少bias
+    pc_control: /dshare/xielab/analysisdata/TFC/shenk/analysis/WZ/BANC_FOODIE/SP1_20241124/data/20241223-SP1ti-highhighYY1/02-merge-outputs/ratio/241211-GMcell-SP1B4-50nM_L6_Q0059W0149/241211-GMcell-SP1B4-50nM_L6_Q0059W0149_sites.txt.gz
+    sample_sheet: config/samples/SP1-FL_lessConc.tsv
+    sample_base_path: /dshare/xielab/analysisdata/TFC/shenk/analysis/WZ/BANC_FOODIE/SP1_20241124/data/20241223-SP1ti-highhighYY1/02-merge-outputs/ratio
+    sample_file_pattern: '{folder_name}/{folder_name}_sites.txt.gz'
+    fitting_indices:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    fix_n_to_1: true
+    preliminary_motif: null
+output:
+  output_dir: ../results  # 结果保存目录，可以是相对路径或绝对路径
+  keep_intermediate: true
+  generate_report: true
+cluster:
+  partition: compute_new  # SLURM分区名称，可根据集群配置修改（如：normal, compute, gpu等）
+default_resources:
+  threads: 1
+  mem_mb: 8000
+  runtime: '7:00:00'
