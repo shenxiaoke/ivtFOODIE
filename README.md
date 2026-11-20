@@ -5,7 +5,7 @@ Code accompanying the ivtFOODIE study.
 | Workflow | Purpose |
 | --- | --- |
 | [Mapping](1-ivtFOODIE-mapping-pipeline/) | Process sequencing reads and generate conversion ratios. |
-| [Kd fitting](2-ivtFOODIE-fit-Kd-pipeline/) | Apply conversion QC, integrate concentrations and fit Kd. |
+| [Kd fitting](2-ivtFOODIE-fit-Kd-pipeline/) | fit Kd |
 | [Seq2Kd–eQTL](3-ivtFOODIE-Seq2Kd-eQTL/) | Relate predicted affinity changes to GTEx eQTL effects. |
 | [Seq2Kd–ClinVar](4-ivtFOODIE-Seq2Kd-ClinVar/) | Compare coding and promoter predictions between pathogenic and benign variants. |
 
