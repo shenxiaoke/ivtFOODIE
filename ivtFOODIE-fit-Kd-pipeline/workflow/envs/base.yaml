@@ -1,0 +1,36 @@
+# Base Python environment for ivtFOODIE postprocessing
+# 基础Python环境：数据处理、统计分析、可视化
+
+name: foodie_base
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  # Python核心
+  - python=3.10
+
+  # 数值计算
+  - numpy=1.24
+  - scipy=1.11
+
+  # 数据处理
+  - pandas=2.0
+
+  # 可视化
+  - matplotlib=3.7
+  - seaborn=0.12
+
+  # 生物信息学文件I/O
+  - pysam=0.21        # BAM/SAM/CRAM/VCF/BCF/tabix操作
+  - pytabix=0.1       # tabix Python接口
+  - bedtools=2.31     # 基因组区间操作
+
+  # 统计模型
+  - statsmodels=0.14
+
+  # pip安装的包
+  - pip
+  - pip:
+    - logomaker==0.8  # Motif logo绘制

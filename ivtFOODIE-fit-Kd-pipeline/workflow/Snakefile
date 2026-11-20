@@ -1,0 +1,826 @@
+"""
+ivtFOODIE Postprocessing Snakemake Workflow
+
+主workflow文件：定义所有规则的入口和辅助函数
+
+工作流程：
+    raw_ratio.txt or raw_ratio.txt.gz (data/)
+        ↓
+    compress_ratio + index_ratio (bgzip + tabix)
+        ↓
+    integrate_samples (整合多样本)
+        ↓
+    fit_kd_basic → footprint_basic
+        ↓
+    fit_kd_flank (使用preliminary motif)
+        ↓
+    footprint_flank
+"""
+
+from pathlib import Path
+from typing import List, Dict
+import pandas as pd
+
+# ========================================
+# 配置文件加载
+# ========================================
+
+configfile: "config/config.yaml"
+
+# ========================================
+# 配置校验（在workflow启动时执行）
+# ========================================
+
+import sys
+import os
+
+# 使用workflow.basedir获取workflow目录
+workflow_dir = workflow.basedir if hasattr(workflow, 'basedir') else os.path.dirname(workflow.snakefile)
+sys.path.insert(0, str(Path(workflow_dir) / "scripts" / "utils"))
+
+from validate_config import validate_config
+
+# ========================================
+# 脚本路径（使用绝对路径，避免 --directory 改变cwd导致相对路径失效）
+# ========================================
+
+WORKFLOW_DIR = Path(workflow_dir)
+KD_FITTER = str(WORKFLOW_DIR / "scripts" / "fitting" / "kd_fitter.py")
+DENOVO_FOOTPRINT = str(WORKFLOW_DIR / "scripts" / "footprinting" / "denovo_footprint.py")
+
+# 执行配置校验
+# 使用项目根目录（workflow目录的父目录）作为基准目录，因为config文件路径是相对于项目根目录的
+project_root = Path(workflow_dir).parent
+if not validate_config(config, base_dir=project_root):
+    # 校验失败，终止workflow
+    raise ValueError(
+        "Configuration validation failed. "
+        "Please fix the errors above before running the workflow."
+    )
+
+# ========================================
+# 辅助函数
+# ========================================
+
+def load_sample_sheet(tf_name: str) -> pd.DataFrame:
+    """
+    加载TF的sample sheet
+
+    参数：
+        tf_name: TF名称
+
+    返回：
+        Sample sheet的DataFrame
+    """
+    tf_config = config["tfs"][tf_name]
+    sample_sheet_path = tf_config.get("sample_sheet")
+
+    if not sample_sheet_path:
+        return None
+
+    # 解析sample sheet路径：如果是相对路径，相对于项目根目录
+    sample_sheet_path_obj = Path(sample_sheet_path)
+    if not sample_sheet_path_obj.is_absolute():
+        # 使用项目根目录（已在全局作用域中定义）作为基准
+        sample_sheet_path_obj = project_root / sample_sheet_path_obj
+
+    # 读取sample sheet
+    sheet = pd.read_csv(sample_sheet_path_obj, sep='\t')
+
+    # 验证必需列
+    required_columns = ["sample_id", "concentration_M", "folder_name"]
+    for col in required_columns:
+        if col not in sheet.columns:
+            raise ValueError(
+                f"Sample sheet for {tf_name} missing required column: {col}"
+            )
+
+    return sheet
+
+
+def get_sample_info(tf_name: str) -> Dict:
+    """
+    获取TF的样本信息（支持sample sheet或直接配置）
+
+    返回：
+        {
+            'sample_ids': [...],      # 样本ID列表
+            'sample_files': [...],    # 样本文件路径列表
+            'concentrations': [...],  # 浓度列表
+            'fitting_indices': [...]  # 拟合索引列表
+        }
+    """
+    tf_config = config["tfs"][tf_name]
+
+    # 方式1：使用sample sheet
+    if "sample_sheet" in tf_config:
+        sheet = load_sample_sheet(tf_name)
+        
+        if sheet is None:
+            raise ValueError(
+                f"TF '{tf_name}': Failed to load sample sheet. "
+                f"Check that 'sample_sheet' path is correct: {tf_config.get('sample_sheet')}"
+            )
+
+        # 获取配置
+        base_path = Path(tf_config.get("sample_base_path", ""))
+        file_pattern = tf_config.get("sample_file_pattern", "{folder_name}_sites.txt")
+
+        # 构建文件路径列表
+        sample_files = []
+        for _, row in sheet.iterrows():
+            folder_name = row["folder_name"]
+            file_path = base_path / file_pattern.format(folder_name=folder_name)
+            sample_files.append(str(file_path))
+
+        # 确保concentration_M列存在
+        if "concentration_M" not in sheet.columns:
+            raise ValueError(
+                f"TF '{tf_name}': Sample sheet missing required column 'concentration_M'. "
+                f"Found columns: {sheet.columns.tolist()}"
+            )
+
+        return {
+            'sample_ids': sheet["sample_id"].tolist(),
+            'sample_files': sample_files,
+            'concentrations': sheet["concentration_M"].tolist(),
+            'fitting_indices': tf_config.get("fitting_indices", list(range(len(sheet))))
+        }
+
+    # 方式2：直接从配置读取
+    elif "sample_files" in tf_config:
+        sample_files = tf_config["sample_files"]
+        concentrations = tf_config.get("concentrations", [])
+
+        # 如果有samples_from/to，用它们生成sample_id
+        if "samples_from" in tf_config and "samples_to" in tf_config:
+            samples_from = tf_config["samples_from"]
+            samples_to = tf_config["samples_to"]
+            sample_pattern = tf_config.get("sample_name_pattern", "{tf}-{i}")
+            sample_ids = [
+                sample_pattern.format(tf=tf_name, i=i)
+                for i in range(samples_from, samples_to + 1)
+            ]
+        else:
+            # 否则生成默认ID
+            sample_ids = [f"{tf_name}-{i+1}" for i in range(len(sample_files))]
+
+        return {
+            'sample_ids': sample_ids,
+            'sample_files': sample_files,
+            'concentrations': concentrations,
+            'fitting_indices': tf_config.get("fitting_indices", list(range(len(sample_files))))
+        }
+
+    else:
+        raise ValueError(
+            f"TF '{tf_name}': Must specify either 'sample_sheet' or 'sample_files'"
+        )
+
+
+def get_sample_names(tf_name: str) -> List[str]:
+    """
+    根据TF名称获取样本名称列表
+
+    参数：
+        tf_name: TF名称
+
+    返回：
+        样本名称列表（用于文件名）
+    """
+    info = get_sample_info(tf_name)
+    return info['sample_ids']
+
+
+def get_preliminary_motif(tf_name: str) -> str:
+    """
+    获取preliminary motif文件路径
+
+    逻辑：
+        1. 如果config中指定了preliminary_motif，使用它
+        2. 否则，从basic方法的footprint结果中选择一个阈值类型
+           （默认选择第一个阈值类型）
+
+    参数：
+        tf_name: TF名称
+
+    返回：
+        Motif文件路径
+    """
+    tf_config = config["tfs"][tf_name]
+
+    # 如果用户指定了preliminary motif
+    preliminary_motif = tf_config.get("preliminary_motif")
+    if preliminary_motif:
+        return preliminary_motif
+
+    # 否则，从basic footprint结果中选择
+    # 默认使用第一个阈值类型
+    default_thres_type = list(config["footprint_thresholds"].keys())[0]
+    output_dir = get_output_dir()
+    return f"{output_dir}/{tf_name}/04_footprints/{tf_name}.footprint.basic.{default_thres_type}.bed"
+
+
+def get_all_tfs() -> List[str]:
+    """获取所有TF名称"""
+    return list(config["tfs"].keys())
+
+
+def get_all_methods() -> List[str]:
+    """获取所有Kd拟合方法"""
+    return ["basic", "flank_corrected"]
+
+
+def get_all_threshold_types() -> List[str]:
+    """获取所有Kd阈值类型"""
+    return list(config["footprint_thresholds"].keys())
+
+
+def get_output_dir() -> str:
+    """
+    获取输出目录路径
+    
+    从config文件中读取output_dir配置，如果未指定则默认为"../results"
+    如果是相对路径，会相对于项目根目录（workflow目录的父目录）解析
+    
+    返回：
+        输出目录路径（字符串，绝对路径或相对于项目根目录的路径）
+    """
+    output_dir = config.get("output", {}).get("output_dir", "../results")
+
+    # 如果是相对路径，需要相对于项目根目录（workflow目录的父目录）解析
+    output_dir_path = Path(output_dir)
+    if not output_dir_path.is_absolute():
+        # 使用项目根目录（已在全局作用域中定义）作为基准
+        output_dir_path = project_root / output_dir_path
+
+    # 关键：规范化路径，消除 ".." 等，避免 Snakemake DAG 匹配时的字符串不一致
+    # strict=False 允许路径尚不存在
+    output_dir_path = output_dir_path.resolve(strict=False)
+
+    return str(output_dir_path)
+
+
+def get_cluster_partition(wildcards) -> str:
+    """
+    获取SLURM分区名称
+    
+    从config文件中读取cluster.partition配置，如果未指定则默认为"normal"
+    
+    参数：
+        wildcards: Snakemake wildcards对象（即使不使用也需要接受）
+    
+    返回：
+        分区名称（字符串）
+    """
+    return config.get("cluster", {}).get("partition", "normal")
+
+
+def get_cluster_time(wildcards) -> str:
+    """
+    获取SLURM任务运行时间
+    
+    从config文件中读取default_resources.runtime配置，如果未指定则默认为"7:00:00"
+    
+    参数：
+        wildcards: Snakemake wildcards对象（即使不使用也需要接受）
+    
+    返回：
+        运行时间（字符串，格式：HH:MM:SS）
+    """
+    return config.get("default_resources", {}).get("runtime", "7:00:00")
+
+
+def get_state_dir() -> Path:
+    """
+    获取 Snakemake 工作目录（用于存放 workflow 内部状态文件）。
+
+    说明：
+    - 提交脚本使用 `--directory .snakemake-xxx` 并行运行多个 config。
+    - 若把内部点文件写到 results/ 根目录，会在多 config 并行时互相覆盖、串台。
+    - 因此将内部状态文件放到当前工作目录（即 --directory 指定的目录）下。
+    """
+    # Snakemake 会在执行阶段将 cwd 切到 --directory 指定的 workdir
+    return Path(os.getcwd())
+
+
+def get_motifs_from_meme_file(meme_file):
+    """
+    从MEME文件中提取motif列表
+    
+    参数：
+        meme_file: MEME文件路径
+    
+    返回：
+        motif名称列表
+    """
+    from pathlib import Path
+    import subprocess
+    
+    # 获取项目根目录
+    if hasattr(workflow, 'basedir'):
+        project_dir = Path(workflow.basedir).parent
+    else:
+        project_dir = Path(workflow.snakefile).parent.parent
+    extract_script = project_dir / "workflow" / "scripts" / "motif" / "extract_motif_list.py"
+    
+    meme_path = Path(meme_file)
+    if not meme_path.exists():
+        return []
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, str(extract_script), str(meme_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=str(project_dir)
+        )
+        if result.returncode == 0:
+            motifs = [m for m in result.stdout.strip().split(',') if m]
+            return motifs
+    except Exception as e:
+        pass
+    
+    return []
+
+
+def read_file_list(file_path):
+    """
+    从文件中读取文件路径列表
+    
+    参数：
+        file_path: 文件路径
+    
+    返回：
+        文件路径列表（去除空行）
+    """
+    from pathlib import Path
+    path = Path(file_path)
+    if not path.exists():
+        return []
+    try:
+        with open(path, 'r') as f:
+            # 规范化每一行路径，消除 ".." 等，避免与规则 output 的路径表示不一致
+            normalized = []
+            for line in f:
+                s = line.strip()
+                if not s:
+                    continue
+                normalized.append(str(Path(s).resolve(strict=False)))
+            return normalized
+    except Exception:
+        return []
+
+
+def get_intersection_files(wildcards):
+    """
+    从文件列表中读取intersection文件路径
+    
+    参数：
+        wildcards: Snakemake wildcards
+        input: Snakemake input对象（可选）
+    
+    返回：
+        intersection文件路径列表
+    """
+    # 关键：通过 checkpoint.get() 强制 Snakemake 先运行 checkpoint 并更新 DAG
+    ckpt = checkpoints.aggregate_motif_outputs.get()
+    list_file = ckpt.output.intersection_list
+    return read_file_list(list_file)
+
+
+def get_visualization_files(wildcards):
+    """
+    从文件列表中读取visualization文件路径
+    
+    参数：
+        wildcards: Snakemake wildcards
+        input: Snakemake input对象（可选）
+    
+    返回：
+        visualization文件路径列表
+    """
+    # 关键：通过 checkpoint.get() 强制 Snakemake 先运行 checkpoint 并更新 DAG
+    ckpt = checkpoints.aggregate_motif_outputs.get()
+    list_file = ckpt.output.visualization_list
+    return read_file_list(list_file)
+
+
+def get_output_path_aggregate_done(wildcards):
+    """获取aggregate完成标志文件的路径"""
+    return str(get_state_dir() / ".motif_aggregate_done")
+
+def get_output_path_intersection_list(wildcards):
+    """获取intersection文件列表的路径"""
+    return str(get_state_dir() / ".motif_intersection_files.txt")
+
+def get_output_path_visualization_list(wildcards):
+    """获取visualization文件列表的路径"""
+    return str(get_state_dir() / ".motif_visualization_files.txt")
+
+def get_output_path_all_motif_outputs_done(wildcards):
+    """获取所有motif输出完成标志文件的路径"""
+    return str(get_state_dir() / ".all_motif_outputs_done")
+
+# ========================================
+# 输出路径模板（用于 output 字段）
+# ========================================
+
+OUTPUT_DIR_FOR_RULES = get_output_dir()
+STATE_DIR_FOR_RULES = str(get_state_dir())
+
+
+# ========================================
+# 导入规则文件
+# ========================================
+
+include: "rules/preprocess.smk"
+include: "rules/quality_control.smk"
+include: "rules/integrate.smk"
+include: "rules/fitting.smk"
+include: "rules/footprinting.smk"
+include: "rules/motif.smk"
+include: "rules/visualization.smk"
+
+# ========================================
+# 本地规则（不提交到集群）
+# ========================================
+#
+# 这两个规则只负责生成 workflow 内部的列表/标记文件，不需要占用计算节点。
+localrules: aggregate_motif_outputs, all_motif_outputs
+
+
+# ========================================
+# Aggregate规则：在checkpoint完成后收集所有meme文件并生成后续目标
+# ========================================
+
+checkpoint aggregate_motif_outputs:
+    input:
+        # 等待所有streme checkpoint完成
+        meme_files=lambda wildcards: [
+            checkpoints.streme_enrich.get(**{
+                "tf": tf,
+                "method": method,
+                "kd_thres_type": kd_thres_type
+            }).output.meme
+            for tf in get_all_tfs()
+            for method in get_all_methods()
+            for kd_thres_type in get_all_threshold_types()
+        ]
+    output:
+        # 占位符输出，用于触发后续规则
+        aggregate_done=STATE_DIR_FOR_RULES + "/.motif_aggregate_done",
+        # 文件列表文件，供后续规则使用
+        intersection_list=STATE_DIR_FOR_RULES + "/.motif_intersection_files.txt",
+        visualization_list=STATE_DIR_FOR_RULES + "/.motif_visualization_files.txt"
+    threads: 1
+    resources:
+        mem_mb=lambda wildcards: config.get("default_resources", {}).get("mem_mb", 1000),
+        partition=get_cluster_partition,
+        time=get_cluster_time
+    run:
+        # 读取所有meme文件，提取motif列表，并生成后续目标文件列表
+        # 使用规范化后的输出目录，避免写入列表文件时包含 ".."
+        output_dir = str(Path(get_output_dir()).resolve(strict=False))
+        all_intersection_outputs = []
+        all_visualization_outputs = []
+        
+        for tf in get_all_tfs():
+            for method in get_all_methods():
+                for kd_thres_type in get_all_threshold_types():
+                    meme_file = checkpoints.streme_enrich.get(**{
+                        "tf": tf,
+                        "method": method,
+                        "kd_thres_type": kd_thres_type
+                    }).output.meme
+                    
+                    motifs = get_motifs_from_meme_file(meme_file)
+                    for motif_name in motifs:
+                        # FIMO扫描输出（作为中间步骤）
+                        fimo_bed = f"{output_dir}/{tf}/05_motifs/fimo/{tf}.footprint.{method}.{kd_thres_type}.motif_{motif_name}.bed"
+                        # 开放区交集输出
+                        intersection_file = f"{output_dir}/{tf}/06_binding_sites/{tf}.footprint.{method}.{kd_thres_type}.motif_{motif_name}.open_region.bed"
+                        # 可视化输出
+                        visualization_file = f"{output_dir}/{tf}/07_visualization/{tf}.footprint.{method}.{kd_thres_type}.motif_{motif_name}.conversion_plot.pdf"
+                        all_intersection_outputs.append(intersection_file)
+                        all_visualization_outputs.append(visualization_file)
+        
+        # 创建标记文件
+        Path(output.aggregate_done).parent.mkdir(parents=True, exist_ok=True)
+        Path(output.aggregate_done).touch()
+        
+        # 将文件列表写入文件，供后续规则使用
+        Path(output.intersection_list).parent.mkdir(parents=True, exist_ok=True)
+        Path(output.visualization_list).parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output.intersection_list, 'w') as f:
+            # 再次规范化，确保列表文件内容不含 ".."
+            f.write('\n'.join(str(Path(p).resolve(strict=False)) for p in all_intersection_outputs))
+        
+        with open(output.visualization_list, 'w') as f:
+            f.write('\n'.join(str(Path(p).resolve(strict=False)) for p in all_visualization_outputs))
+
+
+# ========================================
+# 目标规则：定义workflow的最终输出
+# ========================================
+
+rule all:
+    input:
+        conversion_qc_gate,
+        # 所有TF的所有footprint结果
+        lambda wildcards: expand(
+            f"{get_output_dir()}/{{tf}}/04_footprints/{{tf}}.footprint.{{method}}.{{kd_thres_type}}.bed",
+            tf=get_all_tfs(),
+            method=get_all_methods(),
+            kd_thres_type=get_all_threshold_types()
+        ),
+        # 所有TF的Kd拟合结果
+        lambda wildcards: expand(
+            f"{get_output_dir()}/{{tf}}/03_fitting/{{tf}}.fittingKd.{{method}}.tsv",
+            tf=get_all_tfs(),
+            method=get_all_methods()
+        ),
+        # 所有TF的meme文件（通过checkpoint生成）
+        # 这会触发streme_enrich checkpoint的执行
+        lambda wildcards: expand(
+            f"{get_output_dir()}/{{tf}}/05_motifs/streme/{{tf}}.footprint.{{method}}.{{kd_thres_type}}.meme",
+            tf=get_all_tfs(),
+            method=get_all_methods(),
+            kd_thres_type=get_all_threshold_types()
+        ),
+        # 等待motif聚合完成，这会触发后续规则的动态生成
+        aggregate_output=get_output_path_aggregate_done,
+        # 包含所有motif相关的输出（通过all_motif_outputs规则生成）
+        # 注意：all_motif_outputs规则的output是动态的，我们通过引用这个规则来触发所有文件的生成
+        motif_outputs_done=get_output_path_all_motif_outputs_done
+    default_target: True
+
+
+# ========================================
+# 辅助规则：读取文件列表并请求所有motif相关的输出
+# ========================================
+
+rule all_motif_outputs:
+    """
+    显式请求所有motif相关的输出文件
+    这个规则会在aggregate规则完成后读取文件列表，并请求所有目标文件
+    
+    注意：这个规则的input是动态的，依赖于文件列表中的内容
+    我们使用input函数在input中读取文件列表，这样Snakemake会确保这些文件被生成
+    """
+    input:
+        aggregate_done=get_output_path_aggregate_done,
+        intersection_list=get_output_path_intersection_list,
+        visualization_list=get_output_path_visualization_list,
+        # 动态读取文件列表中的所有文件作为input
+        # 使用input函数读取列表文件，确保在aggregate规则完成后才读取
+        intersection_files=get_intersection_files,
+        visualization_files=get_visualization_files
+    output:
+        # 占位符输出，表示所有motif相关的输出已完成
+        STATE_DIR_FOR_RULES + "/.all_motif_outputs_done"
+    threads: 1
+    resources:
+        mem_mb=lambda wildcards: config.get("default_resources", {}).get("mem_mb", 1000),
+        partition=get_cluster_partition,
+        time=get_cluster_time
+    run:
+        # 创建标记文件
+        Path(output[0]).parent.mkdir(parents=True, exist_ok=True)
+        Path(output[0]).touch()
+        
+        # 注意：实际的文件会由其他规则（fimo_scan_per_motif, intersect_open_regions_per_motif, motif_conversion_plot_per_motif）生成
+        # 通过将这些文件作为input，Snakemake会确保它们被生成
+
+
+# ========================================
+# 辅助规则：只运行到特定步骤
+# ========================================
+
+rule all_compressed:
+    """只压缩和索引所有样本"""
+    input:
+        # 为每个TF生成其样本的压缩文件
+        lambda wildcards: [
+            f"{get_output_dir()}/{tf}/01_compressed/{sample}_sites.txt.gz.tbi"
+            for tf in get_all_tfs()
+            for sample in get_sample_names(tf)
+        ]
+
+
+rule all_integrated:
+    """只运行到样本整合"""
+    input:
+        lambda wildcards: expand(
+            f"{get_output_dir()}/{{tf}}/02_integrated/{{tf}}.samples_ratio.tsv",
+            tf=get_all_tfs()
+        )
+
+
+rule all_kd:
+    """只运行到Kd拟合"""
+    input:
+        lambda wildcards: expand(
+            f"{get_output_dir()}/{{tf}}/03_fitting/{{tf}}.fittingKd.{{method}}.tsv",
+            tf=get_all_tfs(),
+            method=get_all_methods()
+        )
+
+
+# ========================================
+# 清理规则
+# ========================================
+
+rule clean_intermediate:
+    """清理中间文件，保留最终结果"""
+    run:
+        output_dir = get_output_dir()
+        import subprocess
+        print(f"Cleaning intermediate files in {output_dir}...")
+        # 只删除压缩文件（保留footprints和Kd拟合结果）
+        subprocess.run(f"rm -rf {output_dir}/*/01_compressed/", shell=True, check=False)
+        print(f"Done. Kept: 02_integrated, 03_fitting, 04_footprints in {output_dir}")
+
+
+rule clean_all:
+    """清理所有生成的文件"""
+    run:
+        output_dir = get_output_dir()
+        print(f"WARNING: This will delete all results in {output_dir}, logs, and benchmarks!")
+        print("Press Ctrl+C to cancel, or Enter to continue...")
+        try:
+            input()  # Python equivalent of read
+        except (EOFError, KeyboardInterrupt):
+            print("Cancelled.")
+            return
+        import subprocess
+        subprocess.run(f"rm -rf {output_dir}/ logs/ benchmarks/", shell=True, check=False)
+        print("All cleaned.")
+
+
+# ========================================
+# 测试规则：用于调试单个TF
+# ========================================
+
+rule test_single_tf:
+    """
+    测试单个TF的完整workflow
+
+    用法：
+        snakemake test_single_tf --config test_tf=SP1
+    """
+    input:
+        lambda wildcards: expand(
+            f"{get_output_dir()}/{{tf}}/04_footprints/{{tf}}.footprint.{{method}}.{{kd_thres_type}}.bed",
+            tf=config.get("test_tf", get_all_tfs()[0]),
+            method=get_all_methods(),
+            kd_thres_type=get_all_threshold_types()
+        )
+
+
+# ========================================
+# 报告和统计
+# ========================================
+
+rule workflow_report:
+    """
+    生成workflow运行报告
+
+    包含：
+        - 每个TF的处理状态
+        - Kd拟合成功率
+        - Footprint数量统计
+        - 运行时间统计
+    """
+    input:
+        lambda wildcards: expand(
+            f"{get_output_dir()}/{{tf}}/04_footprints/{{tf}}.footprint.{{method}}.{{kd_thres_type}}.stats.txt",
+            tf=get_all_tfs(),
+            method=get_all_methods(),
+            kd_thres_type=get_all_threshold_types()
+        )
+    output:
+        "report/workflow_summary.html"
+    run:
+        import json
+        from datetime import datetime
+
+        # 收集统计信息
+        summary = {
+            "timestamp": datetime.now().isoformat(),
+            "tfs": {}
+        }
+
+        for tf in get_all_tfs():
+            tf_summary = {
+                "methods": {}
+            }
+
+            for method in get_all_methods():
+                method_summary = {
+                    "thresholds": {}
+                }
+
+                for kd_thres_type in get_all_threshold_types():
+                    output_dir = get_output_dir()
+                    stats_file = f"{output_dir}/{tf}/04_footprints/{tf}.footprint.{method}.{kd_thres_type}.stats.txt"
+
+                    if Path(stats_file).exists():
+                        with open(stats_file) as f:
+                            stats_content = f.read()
+                            # 解析统计信息
+                            for line in stats_content.split('\n'):
+                                if "Total footprints:" in line:
+                                    count = int(line.split(':')[1].strip())
+                                    method_summary["thresholds"][kd_thres_type] = {
+                                        "footprint_count": count
+                                    }
+
+                tf_summary["methods"][method] = method_summary
+
+            summary["tfs"][tf] = tf_summary
+
+        # 生成HTML报告
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>ivtFOODIE Workflow Summary</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #4CAF50; color: white; }}
+                h1 {{ color: #333; }}
+                .timestamp {{ color: #666; font-size: 0.9em; }}
+            </style>
+        </head>
+        <body>
+            <h1>ivtFOODIE Postprocessing Workflow Summary</h1>
+            <p class="timestamp">Generated: {summary['timestamp']}</p>
+
+            <h2>Footprint Statistics</h2>
+            <table>
+                <tr>
+                    <th>TF</th>
+                    <th>Method</th>
+                    <th>Threshold Type</th>
+                    <th>Footprint Count</th>
+                </tr>
+        """
+
+        for tf, tf_data in summary["tfs"].items():
+            for method, method_data in tf_data["methods"].items():
+                for kd_thres, thres_data in method_data["thresholds"].items():
+                    count = thres_data.get("footprint_count", 0)
+                    html += f"""
+                <tr>
+                    <td>{tf}</td>
+                    <td>{method}</td>
+                    <td>{kd_thres}</td>
+                    <td>{count}</td>
+                </tr>
+                    """
+
+        html += """
+            </table>
+
+            <h2>JSON Data</h2>
+            <pre>{json_data}</pre>
+        </body>
+        </html>
+        """.format(json_data=json.dumps(summary, indent=2))
+
+        # 输出HTML
+        Path("report").mkdir(exist_ok=True)
+        with open(output[0], 'w') as f:
+            f.write(html)
+
+        print(f"\nReport saved to: {output[0]}")
+
+
+# ========================================
+# Workflow完成时的钩子
+# ========================================
+
+onsuccess:
+    print("\n" + "="*60)
+    print("Workflow completed successfully!")
+    print("="*60)
+    output_dir = get_output_dir()
+    print("\nOutput files:")
+    print(f"  - Kd fitting results: {output_dir}/*/03_fitting/")
+    print(f"  - Footprints: {output_dir}/*/04_footprints/")
+    print("\nTo generate a summary report, run:")
+    print("  snakemake workflow_report")
+    print("="*60 + "\n")
+
+
+onerror:
+    print("\n" + "="*60)
+    print("Workflow failed!")
+    print("="*60)
+    print("\nCheck logs in logs/ directory for details")
+    print("="*60 + "\n")

@@ -1,0 +1,4 @@
+sample_id	concentration	concentration_M	folder_name
+TF-1	2uM	2.0e-6	sample_folder_1
+TF-2	1uM	1.0e-6	sample_folder_2
+TF-3	500nM	5.0e-7	sample_folder_3

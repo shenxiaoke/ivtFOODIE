@@ -1,0 +1,16 @@
+# MEME Suite environment
+# MEME Suite工具集：motif discovery和motif scanning
+
+name: foodie_meme
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+
+dependencies:
+  # MEME Suite (包含STREME和FIMO)
+  - meme=5.5.3
+
+  # 可选：Python用于解析MEME输出
+  - python=3.10
+  - biopython=1.81

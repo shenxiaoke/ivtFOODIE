@@ -1,1 +1,9 @@
-/docs
+.DS_Store
+__pycache__/
+*.py[cod]
+.cache/
+*.local.json
+*.local.env
+inputs/
+results/
+assets/

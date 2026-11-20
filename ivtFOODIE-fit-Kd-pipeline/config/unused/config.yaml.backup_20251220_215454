@@ -1,0 +1,67 @@
+workflow_name: ivtFOODIE_postprocess
+version: 1.0.0
+min_depth: 10
+pc_name: ratio_adjust
+fix_n_to_1: true
+R: 8.31446261815324
+T: 300
+flank_size: 50
+motif_span: 100
+motif_pick_ratio: 0.1
+genomes:
+  human: /dshare/xielab/analysisdata/TFC/shenk/important_data/chrom/genome/GRCh38/genome.fa
+  mouse: /dshare/xielab/analysisdata/TFC/shenk/important_data/chrom/genome/Bismark_mm10/mm10.genome.fa
+open_regions:
+  GM: /path/to/GM_open_regions.bed
+  K562: /path/to/K562_open_regions.bed
+  mESC: /dshare/xielab/analysisdata/TFC/shenk/analysis/WZ/TF_wholeGenome_inVitro_binding/TF_wholeGenome_inVitro_binding_20240923_batchAdjust_new/results/Tox_motif/high_score_peaks.bed
+footprint_thresholds:
+  top5_top10:
+    seed: 0.95
+    extend: 0.9
+    description: Stringent threshold for high-confidence footprints
+  top10_top20:
+    seed: 0.9
+    extend: 0.8
+    description: Moderate threshold for broader footprint discovery
+  top15_top30:
+    seed: 0.85
+    extend: 0.7
+    description: weak threshold for broader footprint discovery
+streme_minw: 6
+streme_maxw: 15
+streme_nmotifs: 10
+streme_thresh: 0.05
+streme_totallength: 4000000
+fimo_thresh: 0.0001
+fimo_max_stored: 100000000
+visualization:
+  motif_pick_ratio: 0.01
+  min_depth_plot: 5
+  normalize_flank: true
+  plot_format: pdf
+  plot_dpi: 300
+tfs:
+  ZhangXueFei:
+    species: mouse
+    cell_line: mESC
+    pc_control: test_data/ZhangXueFei/PC_control_sites.txt
+    sample_sheet: config/samples/ZhangXueFei_samples.tsv
+    sample_base_path: test_data/ZhangXueFei
+    sample_file_pattern: '{folder_name}_sites.txt'
+    fitting_indices:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    fix_n_to_1: true
+    preliminary_motif: null
+output:
+  keep_intermediate: true
+  generate_report: true
+default_resources:
+  threads: 1
+  mem_mb: 8000
+  runtime: '7:00:00'
